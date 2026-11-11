@@ -36,40 +36,6 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - run: python -m pip install -e ".[dev]" -r desktop/requirements-build.txt -c desktop/constraints.txt
-      - name: Check Windows worker lifecycle
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          @'
-          import asyncio, json, os, subprocess, sys, tempfile
-          from pathlib import Path
-          from tests.test_watermark import make_video
-          from core.watermark.service import process_file
-          with tempfile.TemporaryDirectory() as folder:
-              root = Path(folder)
-              source = make_video(root / 'source.mp4')
-              for monitored in ('0', '1'):
-                  work = root / monitored
-                  work.mkdir()
-                  response = work / 'response.json'
-                  request = work / 'request.json'
-                  request.write_text(json.dumps({'source':str(source),'workspace':str(work),'response':str(response),'config':{'visible':False}}))
-                  with (work / 'worker.log').open('w') as output:
-                      proc = subprocess.Popen([sys.executable,'-m','core.watermark.worker',str(request)],stdin=subprocess.PIPE,stdout=output,stderr=output,env={**os.environ,'DOUYIN_WORKER_PARENT_PIPE':monitored,'DOUYIN_WATERMARK_PROGRESS':'1'})
-                      try:
-                          proc.wait(timeout=30)
-                          print('parent_watch',monitored,'exit',proc.returncode,flush=True)
-                      except subprocess.TimeoutExpired:
-                          print('parent_watch',monitored,'timeout','response_exists',response.exists(),flush=True)
-                          proc.kill()
-                          proc.wait()
-                      finally:
-                          proc.stdin.close()
-                  print((work / 'worker.log').read_text(encoding='utf-8'))
-              source = make_video(root / 'async.mp4')
-              result = asyncio.run(process_file(source,{'visible':False,'timeout_seconds':30},progress=lambda path,event:print(event,flush=True)))
-              print('::notice::async_worker '+str(result),flush=True)
-          '@ | python -
       - name: Backend tests
         shell: python
         run: |

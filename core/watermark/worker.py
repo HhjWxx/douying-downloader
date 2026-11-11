@@ -254,23 +254,47 @@ def run(request):
         return report
 
 
-def main():
-    if os.environ.get("DOUYIN_WORKER_PARENT_PIPE") == "1":
-        import threading
+def watch_parent(stopped):
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
 
-        def watch_parent():
-            # 父进程持有管道写端；异常退出后 EOF 自动终止 Worker，兼容 Windows。
-            # 使用 os.read 避免 daemon 线程持有 Python 缓冲流锁影响正常退出。
-            try:
-                while os.read(0, 1):
-                    pass
-            finally:
+        # 阻塞 os.read 会持有 Windows CRT 的 stdin 锁，OCR 导入时的
+        # isatty 等检查可能因此等待。直接探测管道，不占用 CRT 文件描述符。
+        peek = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+        peek.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                         wintypes.LPDWORD, wintypes.LPDWORD, wintypes.LPDWORD]
+        peek.restype = wintypes.BOOL
+        handle = msvcrt.get_osfhandle(0)
+        while not stopped.wait(0.2):
+            if not peek(handle, None, 0, None, None, None):
+                os._exit(75)
+    else:
+        import select
+
+        while not stopped.is_set():
+            readable, _, _ = select.select([0], [], [], 0.2)
+            if readable and not os.read(0, 1):
                 os._exit(75)
 
-        threading.Thread(target=watch_parent, daemon=True).start()
-    request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-    result = run(request)
-    atomic_json(Path(request["response"]), result)
+
+def main():
+    import threading
+
+    stopped = threading.Event()
+    watcher = None
+    if os.environ.get("DOUYIN_WORKER_PARENT_PIPE") == "1":
+        watcher = threading.Thread(target=watch_parent, args=(stopped,), daemon=True)
+        watcher.start()
+    try:
+        request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+        result = run(request)
+        atomic_json(Path(request["response"]), result)
+    finally:
+        stopped.set()
+        if watcher:
+            watcher.join(timeout=1)
 
 
 if __name__ == "__main__":

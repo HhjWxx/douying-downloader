@@ -38,10 +38,25 @@ def check(executable, model_dir):
         request.write_text(json.dumps({"source": str(source), "workspace": str(workspace),
                                        "response": str(response), "config": {"model_dir": str(model_dir)}}),
                            encoding="utf-8")
-        worker = subprocess.run([str(executable), "--watermark-worker", str(request)], check=True, timeout=120,
-                                capture_output=True, text=True, encoding="utf-8",
-                                env={**os.environ, "DOUYIN_WATERMARK_PROGRESS": "1"})
-        events = [json.loads(line) for line in worker.stdout.splitlines() if line.startswith("{")]
+        worker_log = workspace / "worker.log"
+        # 按桌面实际运行方式保持父管道打开，验证 OCR 导入与正常退出不会互相阻塞。
+        with worker_log.open("w", encoding="utf-8") as log:
+            worker = subprocess.Popen(
+                [str(executable), "--watermark-worker", str(request)],
+                stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT,
+                env={**os.environ, "DOUYIN_WATERMARK_PROGRESS": "1", "DOUYIN_WORKER_PARENT_PIPE": "1"},
+            )
+            try:
+                worker.wait(timeout=120)
+            finally:
+                if worker.poll() is None:
+                    worker.kill()
+                    worker.wait()
+                worker.stdin.close()
+        output = worker_log.read_text(encoding="utf-8")
+        if worker.returncode:
+            raise RuntimeError(output)
+        events = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
         assert any(event.get("unit") == "帧" and event.get("done") == 12 for event in events), "冻结 Worker 未报告帧进度"
         report = json.loads(response.read_text(encoding="utf-8"))
         assert report["status"] == "success", report.get("reason")

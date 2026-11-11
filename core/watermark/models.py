@@ -61,9 +61,15 @@ def prepare(directory=""):
 
 
 def create_ocr(directory=""):
+    root = model_root(directory)
+    # 模型缺失时直接降级，不先加载 OCR 引擎及其原生依赖。
+    for name, checksum in MODELS.values():
+        path = root / name
+        if not path.is_file() or sha256(path) != checksum:
+            raise RuntimeError("OCR 模型缺失或校验失败，请运行 python -m tools.watermark setup")
+
     from rapidocr import ModelType, OCRVersion, RapidOCR
 
-    root = model_root(directory)
     params = {
         "Global.use_cls": False,
         "Global.log_level": "error",
@@ -77,10 +83,8 @@ def create_ocr(directory=""):
         "EngineConfig.onnxruntime.intra_op_num_threads": 2,
         "EngineConfig.onnxruntime.inter_op_num_threads": 1,
     }
-    for kind, (name, checksum) in MODELS.items():
+    for kind, (name, _) in MODELS.items():
         path = root / name
-        if not path.is_file() or sha256(path) != checksum:
-            raise RuntimeError("OCR 模型缺失或校验失败，请运行 python -m tools.watermark setup")
         section = kind.capitalize()
         params[section + ".model_path"] = str(path)
         params[section + ".ocr_version"] = OCRVersion.PPOCRV4

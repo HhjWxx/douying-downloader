@@ -230,7 +230,7 @@ async def test_parallel_jobs_same_file_are_serialized(tmp_path):
 async def test_missing_models_is_partial_and_still_cleans_markers(tmp_path):
     source = make_video(tmp_path / "source.mp4")
     result = await process_file(source, {"model_dir": str(tmp_path / "missing")})
-    assert result["status"] == "partial"
+    assert result["status"] == "partial", result
     assert "模型" in result["reason"]
     assert not media.scan_markers(Path(result["output"]))
 
