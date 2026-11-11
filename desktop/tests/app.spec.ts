@@ -13,6 +13,13 @@ test('真实 Electron 窗口、sidecar 与设置持久化', async () => {
     await page.getByRole('button', { name: '设置与诊断', exact: true }).click();
     await expect(page.getByRole('heading', { name: '设置与诊断' })).toBeVisible();
     await page.getByLabel('保存目录').fill(path.join(dataDir, '下载目录 中文'));
+    // 模拟稍迟到达的连接通知，不能把用户刚输入的目录恢复为旧设置。
+    await app.evaluate(({BrowserWindow}) => {
+      const ui = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().startsWith('app://ui/'))!;
+      ui.webContents.send('desktop-event',{type:'connected'});
+      ui.webContents.send('desktop-event',{type:'ready'});
+    });
+    await expect(page.getByLabel('保存目录')).toHaveValue(path.join(dataDir, '下载目录 中文'));
     await page.getByRole('button', { name: '保存设置', exact: true }).click();
     await expect(page.getByText('设置已保存')).toBeVisible();
     await page.getByRole('button', { name: '下载任务', exact: true }).click();

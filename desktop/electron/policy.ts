@@ -14,9 +14,11 @@ export function douyinURL(value: string): boolean {
 
 export function contextFromURL(value: string) {
   try {
+    if (!douyinURL(value)) return { current: '', author: '', mix: '' };
     const url = new URL(value);
-    const current = /\/(?:video|note|slides|gallery)\/(\d+)/.exec(url.pathname)?.[1]
+    const candidate = /\/(?:video|note|slides|gallery)\/(\d+)/.exec(url.pathname)?.[1]
       || url.searchParams.get('modal_id') || '';
+    const current = /^\d{5,30}$/.test(candidate) ? candidate : '';
     return { current, author: /\/user\/([\w-]+)/.exec(url.pathname)?.[1] || '',
       mix: /\/(?:collection|mix)\/(\d+)/.exec(url.pathname)?.[1] || '' };
   } catch { return { current: '', author: '', mix: '' }; }

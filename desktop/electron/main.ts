@@ -1,11 +1,12 @@
 import { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, protocol, net, session } from 'electron';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { appendFile, mkdir, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { allowedPaths, apiAllowed, contextFromURL, douyinURL, pageScript } from './policy.js';
+import { apiAllowed, contextFromURL, douyinURL, pageScript } from './policy.js';
+import { currentPlayerScript, inspectPageScript, MediaIndex, type PageSnapshot } from './browser-context.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, '../..');
@@ -34,7 +35,10 @@ const knownPaths = new Set<string>();
 let browserItems = new Map<string, any>();
 let context = { current: '', author: '', mix: '' };
 let captureGeneration = 0;
-let contentPageKey = '';
+let detectedContext = { url: '', current: '' };
+let detectingContext: Promise<string> | undefined;
+const mediaIndex = new MediaIndex();
+const pagePayloads = new Set<string>();
 let contextTimer: ReturnType<typeof setInterval> | undefined;
 let bridgeChain = Promise.resolve();
 let currentSettings = { path: '', proxy: '', thread: 2, cleanup: true };
@@ -197,31 +201,68 @@ function showBrowser(data: { visible: boolean; bounds?: Electron.Rectangle }) {
 function browserState() {
   const url = browser.webContents.getURL();
   context = contextFromURL(url);
+  if (!context.current && detectedContext.url === url) context.current = detectedContext.current;
   if (!context.author && context.current) context.author = browserItems.get(context.current)?.sec_uid || '';
-  emit({ type: 'browser', url, ...context, items: [...browserItems.values()] });
+  const items = [...browserItems.values()];
+  if (context.current && !browserItems.has(context.current)) {
+    items.unshift({id: context.current, title: '当前播放作品', author: '作品详情将在下载时读取'});
+  }
+  emit({ type: 'browser', url, ...context, items });
+  return context.current;
 }
 
-async function detectVisibleContext() {
-  if (!browserVisible || !baseURL || browser.webContents.isDestroyed()) return;
-  if (contextFromURL(browser.webContents.getURL()).current) return;
+async function ingestCapture(text: string, generation: number) {
+  if (text.length > 10000000 || generation !== captureGeneration) return;
+  const result = await api('POST', '/api/v1/capture', { text });
+  if (generation !== captureGeneration) return;
+  mediaIndex.ingest(text);
+  for (const item of result.items) browserItems.set(item.id, item);
+  while (browserItems.size > 500) browserItems.delete(browserItems.keys().next().value!);
+}
+
+async function inspectVisibleContext() {
+  const contents = browser.webContents;
+  const url = contents.getURL();
+  const generation = captureGeneration;
+  if (!douyinURL(url)) return '';
   try {
-    const ids: string[] = await browser.webContents.executeJavaScript(`(() => {
-      const ids = new Set();
-      for (const anchor of document.querySelectorAll('a[href]')) {
-        const box = anchor.getBoundingClientRect();
-        if (box.width < 20 || box.height < 20 || box.bottom < 0 || box.right < 0 || box.top > innerHeight || box.left > innerWidth) continue;
-        const url = new URL(anchor.href, location.href);
-        if (url.hostname !== 'www.douyin.com') continue;
-        const id = /\\/(?:video|note)\\/(\\d+)/.exec(url.pathname)?.[1] || url.searchParams.get('modal_id');
-        if (id) ids.add(id);
-      }
-      return [...ids];
-    })()`);
-    const current = ids.length === 1 && browserItems.has(ids[0]) ? ids[0] : '';
-    context = { ...contextFromURL(browser.webContents.getURL()), current };
-    if (current && !context.author) context.author = browserItems.get(current)?.sec_uid || '';
-    emit({ type: 'browser', url: browser.webContents.getURL(), ...context, items: [...browserItems.values()] });
-  } catch { /* 页面导航时上下文会销毁，下一次重新识别。 */ }
+    const snapshot: PageSnapshot = await contents.executeJavaScript(inspectPageScript);
+    if (generation !== captureGeneration || contents.getURL() !== url || snapshot.url !== url) return '';
+    for (const text of [...snapshot.payloads, JSON.stringify(snapshot.items)]) {
+      const key = createHash('sha256').update(text).digest('hex');
+      if (pagePayloads.has(key)) continue;
+      try {
+        await ingestCapture(text, generation);
+        if (generation !== captureGeneration || contents.getURL() !== url) return '';
+        pagePayloads.add(key);
+        while (pagePayloads.size > 100) pagePayloads.delete(pagePayloads.values().next().value!);
+      } catch { /* 单个内嵌数据不受支持，不影响播放器标识识别。 */ }
+    }
+    if (generation !== captureGeneration || contents.getURL() !== url) return '';
+    // 缓存入库期间可能已切换下一条；最终以此刻的播放器为准。
+    const current: PageSnapshot = await contents.executeJavaScript(currentPlayerScript);
+    if (generation !== captureGeneration || contents.getURL() !== url || current.url !== url) return '';
+    detectedContext = {url, current: mediaIndex.current(current)};
+    return browserState();
+  } catch {
+    if (generation === captureGeneration && contents.getURL() === url) {
+      detectedContext = {url, current: ''};
+      return browserState();
+    }
+    return '';
+  }
+}
+
+async function detectVisibleContext(force = false): Promise<string> {
+  if ((!browserVisible && !force) || !baseURL || browser.webContents.isDestroyed()) return '';
+  if (detectingContext) {
+    if (!force) return detectingContext;
+    await detectingContext;
+  }
+  const pending = inspectVisibleContext();
+  detectingContext = pending;
+  try { return await pending; }
+  finally { if (detectingContext === pending) detectingContext = undefined; }
 }
 
 function attachCapture() {
@@ -230,10 +271,10 @@ function attachCapture() {
   try { contents.debugger.attach('1.3'); } catch { return; }
   void contents.debugger.sendCommand('Network.enable');
   contents.debugger.on('message', async (_event, method, data) => {
-    if (method === 'Network.responseReceived') {
+    if (method === 'Network.requestWillBeSent') {
       try {
-        const url = new URL(data.response.url);
-        if (url.hostname === 'www.douyin.com' && (allowedPaths.has(url.pathname) || /^\/aweme\/v\d+\/web\//.test(url.pathname))) {
+        const url = new URL(data.request.url);
+        if (douyinURL(url.href) && /^\/aweme\/v\d+\/web\//.test(url.pathname)) {
           requests.set(data.requestId, captureGeneration);
           if (requests.size > 500) requests.delete(requests.keys().next().value!);
         }
@@ -246,10 +287,8 @@ function attachCapture() {
       const payload = await contents.debugger.sendCommand('Network.getResponseBody', { requestId: data.requestId });
       const text = payload.base64Encoded ? Buffer.from(payload.body, 'base64').toString() : payload.body;
       if (text.length > 10000000 || generation !== captureGeneration) return;
-      const result = await api('POST', '/api/v1/capture', { text });
+      await ingestCapture(text, generation!);
       if (generation !== captureGeneration) return;
-      for (const item of result.items) browserItems.set(item.id, item);
-      while (browserItems.size > 500) browserItems.delete(browserItems.keys().next().value!);
       browserState();
     } catch { /* 单条响应过期不清空已经识别的作品。 */ }
   });
@@ -287,6 +326,7 @@ function registerIPC() {
     const contents = browser.webContents;
     if (action === 'layout') return showBrowser(data);
     if (action === 'state') { browserState(); return; }
+    if (action === 'current') return detectVisibleContext(true);
     if (action === 'navigate') {
       if (!douyinURL(data)) throw Error('仅支持抖音网页地址');
       await contents.loadURL(data); return;
@@ -387,16 +427,21 @@ else {
       clearTimeout(cookieTimer); cookieTimer = setTimeout(() => { void syncCookies().catch(() => {}); }, 500);
     });
     browser.webContents.on('did-start-navigation', (_e, _url, isInPlace, mainFrame) => {
-      if (mainFrame && !isInPlace) { captureGeneration++; browserItems.clear(); }
+      if (mainFrame) {
+        detectedContext = {url: '', current: ''};
+        if (!isInPlace) {
+          captureGeneration++;
+          browserItems.clear(); mediaIndex.clear(); pagePayloads.clear();
+        }
+      }
     });
     browser.webContents.on('did-navigate', browserState);
-    browser.webContents.on('did-navigate-in-page', (_event, url, mainFrame) => {
+    browser.webContents.on('did-navigate-in-page', (_event, _url, mainFrame) => {
       if (mainFrame) {
-        const value = new URL(url); value.searchParams.delete('modal_id');
-        const key = value.pathname + value.search;
-        if (contentPageKey && key !== contentPageKey) { browserItems.clear(); captureGeneration++; }
-        contentPageKey = key;
+        // SPA 切换常复用预加载响应，不能在打开视频时删除其已捕获数据。
+        detectedContext = {url: '', current: ''};
         browserState();
+        void detectVisibleContext();
       }
     });
     browser.webContents.on('did-finish-load', browserState);

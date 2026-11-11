@@ -27,6 +27,7 @@ function App() {
   const [notice, setNotice] = useState('正在启动本地下载服务…');
   const [fatal, setFatal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
   const [logged, setLogged] = useState(false);
   const [account, setAccount] = useState('');
   const [address, setAddress] = useState('https://www.douyin.com/');
@@ -52,29 +53,35 @@ function App() {
   const [link, setLink] = useState('');
   const slot = useRef<HTMLDivElement>(null);
   const pageVersion = useRef(0);
+  const initialization = useRef<Promise<void> | null>(null);
 
   const attempt = useCallback(async (fn: () => Promise<unknown>) => {
     try { return await fn(); } catch (error) { setNotice(String(error).replace(/^Error: /, '')); }
   }, []);
   const refreshJobs = useCallback(async () => { const data = await api.api('GET', '/api/v1/jobs'); setJobs(data.jobs); }, []);
-  const initialize = useCallback(async () => {
-    const data = await api.api('GET', '/api/v1/settings');
-    setSettings(data); setOptions(o => ({ ...o, cleanup: data.cleanup }));
-    await refreshJobs(); setReady(true); setFatal(false); setNotice('');
-    await api.browser('state');
+  const initialize = useCallback((force = false) => {
+    // ready、connected 和初次 health 可能先后到达，避免覆盖用户正在编辑的设置。
+    if (force) initialization.current = null;
+    if (!initialization.current) initialization.current = (async () => {
+      const data = await api.api('GET', '/api/v1/settings');
+      setSettings(data); setOptions(o => ({ ...o, cleanup: data.cleanup }));
+      await refreshJobs(); setReady(true); setFatal(false); setNotice('');
+      await api.browser('state');
+    })().catch(error => { initialization.current = null; throw error; });
+    return initialization.current;
   }, [refreshJobs]);
 
   useEffect(() => {
     const unsubscribe = api.onEvent(event => {
       if (event.type === 'ready' || event.type === 'connected') void attempt(initialize);
-      if (event.type === 'fatal') { setFatal(true); setReady(false); setNotice(event.message); }
+      if (event.type === 'fatal') { initialization.current = null; setFatal(true); setReady(false); setNotice(event.message); }
       if (event.type === 'warning') setNotice(event.message);
       if (event.type === 'session') setLogged(event.logged_in);
       if (event.type === 'browser') { setBrowserState(event); setAddress(event.url || 'https://www.douyin.com/'); }
       if (event.type === 'job') setJobs(old => [event.job, ...old.filter(x => x.job_id !== event.job.job_id)].sort((a, b) => b.created_at.localeCompare(a.created_at)));
-      if (event.type === 'connection' && !event.connected) setNotice('正在恢复与下载服务的连接…');
+      if (event.type === 'connection' && !event.connected) { initialization.current = null; setNotice('正在恢复与下载服务的连接…'); }
     });
-    void api.api('GET', '/api/v1/health').then(initialize).catch(() => {});
+    void api.api('GET', '/api/v1/health').then(() => initialize()).catch(() => {});
     return unsubscribe;
   }, [attempt, initialize]);
 
@@ -98,6 +105,16 @@ function App() {
   }, [browserState.items, tab]);
 
   const openTarget = (value: Target) => { setTarget(value); setOptions({ ...defaults, cleanup: settings.cleanup }); };
+  const downloadCurrent = async () => {
+    setRecognizing(true);
+    try {
+      await attempt(async () => {
+        const id = await api.browser('current');
+        if (id) { setNotice(''); openTarget({kind: 'items', ids: [id]}); }
+        else setNotice('尚未识别到当前播放作品，请等待视频加载或打开视频详情后重试');
+      });
+    } finally { setRecognizing(false); }
+  };
   const toggle = (id: string) => setSelected(old => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const submit = async () => {
     if (!target) return;
@@ -152,14 +169,14 @@ function App() {
       {tab === 'browse' && <>
         <div className="page-heading"><div><span className="eyebrow">发现与下载</span><h1>在抖音里发现，在这里保存。</h1><p>正常浏览视频，选择作品或作者，即可加入下载队列。</p></div><button onClick={() => void attempt(() => api.browser('verify'))}>登录 / 验证窗口</button></div>
         <form className="addressbar" onSubmit={e => { e.preventDefault(); void attempt(() => api.browser('navigate', address)); }}><button type="button" aria-label="后退" onClick={() => void attempt(() => api.browser('back'))}>←</button><button type="button" aria-label="前进" onClick={() => void attempt(() => api.browser('forward'))}>→</button><button type="button" aria-label="刷新" onClick={() => void attempt(() => api.browser('reload'))}>↻</button><input aria-label="抖音网址" value={address} onChange={e => setAddress(e.target.value)}/><button type="submit">打开</button></form>
-        <div className="browser-tools"><button className="primary" disabled={!ready} onClick={() => browserState.current ? openTarget({ kind: 'items', ids: [browserState.current] }) : setNotice('当前页面未提供唯一作品标识，请从右侧已识别列表选择作品')}>↓ 下载当前视频</button>
+        <div className="browser-tools"><button className="primary" disabled={!ready || recognizing} onClick={() => void downloadCurrent()}>{recognizing ? '正在识别当前视频…' : '↓ 下载当前视频'}</button>
           <button disabled={!browserState.author || browserState.author === 'self'} onClick={() => openTarget({ kind: 'author', id: browserState.author })}>下载当前作者</button>
           {browserState.mix && <button onClick={() => openTarget({ kind: 'mix', id: browserState.mix })}>下载当前合集</button>}
           <span className="muted">原片保留 · 自动处理</span></div>
         <div className="browser-grid"><div className="browser-slot" ref={slot}><div className="empty"><Icon name="browse"/><p>{ready ? '正在加载抖音页面' : '等待本地服务启动'}</p></div></div>
           <aside className="capture-panel"><div className="panel-title"><b>页面中的作品</b><span>{browserState.items.length}</span></div><p className="muted">仅包含已加载内容</p>
             <button disabled={!selected.size} className="primary full" onClick={() => openTarget({ kind: 'items', ids: [...selected] })}>下载选中 · {selected.size}</button>
-            <div className="capture-list">{browserState.items.map(item => <button key={item.id} className={'capture-item ' + (selected.has(item.id) ? 'selected' : '')} onClick={() => toggle(item.id)}><span className={'check ' + (selected.has(item.id) ? 'checked' : '')}>{selected.has(item.id) ? '✓' : ''}</span><span><b>{item.title}</b><small>{item.author}</small></span></button>)}{!browserState.items.length && <div className="empty compact"><p>浏览或刷新页面后<br/>识别到的作品会显示在这里</p></div>}</div>
+            <div className="capture-list">{browserState.items.map(item => <button key={item.id} aria-current={item.id === browserState.current ? 'true' : undefined} className={'capture-item ' + (selected.has(item.id) ? 'selected' : '')} onClick={() => toggle(item.id)}><span className={'check ' + (selected.has(item.id) ? 'checked' : '')}>{selected.has(item.id) ? '✓' : ''}</span><span><b>{item.id === browserState.current && '【当前播放】'}{item.title}</b><small>{item.author}</small></span></button>)}{!browserState.items.length && <div className="empty compact"><p>浏览或刷新页面后<br/>识别到的作品会显示在这里</p></div>}</div>
           </aside></div>
       </>}
       {tab === 'content' && <>
@@ -199,7 +216,7 @@ function App() {
           <label className="toggle"><input type="checkbox" checked={settings.cleanup} onChange={e => setSettings({ ...settings, cleanup: e.target.checked })}/><span>下载后自动去水印<small>保留原片；可能存在修复痕迹或字幕误伤，部分结果会标记为“部分完成”。</small></span></label>
         </section>
         <section className="settings-card"><h3>网络设置</h3><label>HTTP / HTTPS 代理<input placeholder="留空直连，例如 http://127.0.0.1:7897" value={settings.proxy} onChange={e => setSettings({ ...settings, proxy: e.target.value })}/></label><p className="muted">浏览器和下载服务使用同一代理设置；系统 TUN 在直连模式下仍然生效。</p></section>
-        <div className="toolbar"><button className="primary" onClick={() => void attempt(async () => { setSettings(await api.api('PUT', '/api/v1/settings', settings)); setNotice('设置已保存'); })}>保存设置</button><button onClick={() => void attempt(async () => setDiagnostics(await api.diagnostics()))}>运行网络诊断</button><button onClick={() => void attempt(async () => { const result = await api.importData(); if (result) { await initialize(); setNotice(`导入完成：${result.imported} 条历史`); } })}>导入 CLI 配置与历史</button><button onClick={() => void attempt(async () => { await api.browser('logout'); setLogged(false); setAccount(''); setNotice('已退出抖音登录'); })}>退出抖音账号</button></div>
+        <div className="toolbar"><button className="primary" onClick={() => void attempt(async () => { setSettings(await api.api('PUT', '/api/v1/settings', settings)); setNotice('设置已保存'); })}>保存设置</button><button onClick={() => void attempt(async () => setDiagnostics(await api.diagnostics()))}>运行网络诊断</button><button onClick={() => void attempt(async () => { const result = await api.importData(); if (result) { await initialize(true); setNotice(`导入完成：${result.imported} 条历史`); } })}>导入 CLI 配置与历史</button><button onClick={() => void attempt(async () => { await api.browser('logout'); setLogged(false); setAccount(''); setNotice('已退出抖音登录'); })}>退出抖音账号</button></div>
         {diagnostics.length > 0 && <section className="settings-card"><h3>诊断结果</h3>{diagnostics.map(x => <div className="diagnostic" key={x.name}><b>{x.ok ? '✓' : '×'} {x.name}</b><span>{x.detail}</span></div>)}</section>}
       </>}
     </div></main>

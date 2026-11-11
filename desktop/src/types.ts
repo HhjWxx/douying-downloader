@@ -5,6 +5,7 @@ export interface Settings { path: string; proxy: string; thread: number; cleanup
 export interface Job { job_id: string; status: string; title?: string; authors?: string[]; target: Target; options: Options; created_at: string; items: string[]; results: Record<string, any>; progress: Record<string, any>; output_dirs: string[]; error: string; attempt: number; listing_complete: boolean }
 export interface Desktop {
   api(method: string, route: string, body?: unknown): Promise<any>;
+  browser(action: 'current'): Promise<string>;
   browser(action: string, data?: unknown): Promise<void>;
   chooseDirectory(): Promise<string | null>;
   openPath(path: string): Promise<void>;

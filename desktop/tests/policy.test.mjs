@@ -30,3 +30,8 @@ test('桥接脚本将动态内容作为数据，保留表单 POST', async () => 
   assert.equal(globalThis.compromised, undefined);
   assert.equal(result.status,200);
 });
+
+test('当前作品只接受抖音页面的数字标识', () => {
+  assert.equal(contextFromURL('https://www.douyin.com/?modal_id=undefined').current, '');
+  assert.equal(contextFromURL('https://other.test/video/7697097927726009663').current, '');
+});
