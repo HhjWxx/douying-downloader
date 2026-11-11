@@ -8,9 +8,9 @@ on:
         default: windows
         options: [windows, all]
   push:
-    paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'tools/*desktop*', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'config/**', 'control/**', 'auth/**', 'utils/**', 'tests/**', 'pyproject.toml', 'requirements.txt', 'tools/*desktop*', '.github/workflows/desktop.yml']
   pull_request:
-    paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'tools/*desktop*', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'config/**', 'control/**', 'auth/**', 'utils/**', 'tests/**', 'pyproject.toml', 'requirements.txt', 'tools/*desktop*', '.github/workflows/desktop.yml']
 concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: true
