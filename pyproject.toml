@@ -8,7 +8,7 @@ version = "2.0.0"
 description = "Douyin batch downloader with no-watermark support"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.14"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Video",
 ]
 dependencies = [
@@ -38,6 +39,14 @@ dependencies = [
     # ships a native macOS arm64 wheel; older versions only shipped
     # x86_64 macOS binaries.
     "imageio-ffmpeg==0.6.0",
+    # 本地媒体解封装、画面修复与离线 CPU OCR；版本保留 Intel Mac / Windows 支持。
+    "av==15.1.0",
+    "opencv-python-headless==4.11.0.86",
+    "rapidocr==3.10.0",
+    "onnxruntime==1.19.2; python_version < '3.10'",
+    "onnxruntime==1.20.1; python_version >= '3.10'",
+    "numpy==1.26.4; python_version < '3.10'",
+    "numpy==2.2.6; python_version >= '3.10'",
 ]
 
 [project.optional-dependencies]

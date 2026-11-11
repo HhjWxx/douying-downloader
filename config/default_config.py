@@ -1,7 +1,10 @@
 from typing import Any, Dict
 
+from config.watermark import DEFAULTS as WATERMARK_DEFAULTS
+
 DEFAULT_CONFIG: Dict[str, Any] = {
     "path": "./Downloaded/",
+    "watermark": WATERMARK_DEFAULTS.copy(),
     # 处理内容开关：默认只保存视频本体。封面 / 音乐 / 头像 / 作品 JSON 都是
     # 附带产物，绝大多数用户并不需要，默认全开会平白多出几倍文件和请求。
     # 只影响新配置；已有 config.yml 里显式写过的值不受影响。

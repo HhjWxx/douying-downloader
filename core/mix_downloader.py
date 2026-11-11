@@ -13,6 +13,7 @@ from core.user_modes.base_strategy import (
     hard_page_failure_message,
     page_failure_advice,
 )
+from core.watermark.service import cleanup_download
 from utils.logger import setup_logger
 
 logger = setup_logger("MixDownloader")
@@ -21,6 +22,7 @@ _SCOPE_LABEL = "合集"
 
 
 class MixDownloader(BaseDownloader):
+    @cleanup_download
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
 

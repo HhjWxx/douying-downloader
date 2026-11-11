@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from config.watermark import normalize as normalize_watermark
 from utils.cookie_utils import parse_cookie_header, sanitize_cookies
 
 from .default_config import DEFAULT_CONFIG
@@ -178,6 +179,7 @@ class ConfigLoader:
         "live",
         "transcript",
         "notifications",
+        "watermark",
     )
 
     def save(self) -> bool:
@@ -338,6 +340,7 @@ class ConfigLoader:
         return links
 
     def validate(self) -> bool:
+        self.config["watermark"] = normalize_watermark(self.config.get("watermark"))
         if not self.get_links():
             return False
         if not self.config.get("path"):

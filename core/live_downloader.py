@@ -30,6 +30,7 @@ import aiohttp
 from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.output_naming import plan_output_paths
+from core.watermark.service import cleanup_download
 from utils.logger import setup_logger
 from utils.naming import build_live_context
 
@@ -51,6 +52,7 @@ _FLV_QUALITY_ORDER = {
 
 
 class LiveDownloader(BaseDownloader):
+    @cleanup_download
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
 
@@ -140,6 +142,7 @@ class LiveDownloader(BaseDownloader):
         )
 
         if ok:
+            self._queue_cleanup([target_path], author_name)
             result.success += 1
             self._progress_advance_item("success", str(room_id))
             logger.info("Live recording finished: %s", target_path)

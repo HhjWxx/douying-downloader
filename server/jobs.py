@@ -22,8 +22,9 @@ class JobStatus:
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    PARTIAL = "partial"
 
-    TERMINAL = frozenset({SUCCESS, FAILED})
+    TERMINAL = frozenset({SUCCESS, FAILED, PARTIAL})
 
 
 class DownloadJob:
@@ -40,6 +41,7 @@ class DownloadJob:
         self.success = 0
         self.failed = 0
         self.skipped = 0
+        self.cleanup = {"counts": {}, "items": [], "incomplete": False}
         self.error: Optional[str] = None
         self._task: Optional[asyncio.Task] = None
 
@@ -56,6 +58,7 @@ class DownloadJob:
             "failed": self.failed,
             "skipped": self.skipped,
             "error": self.error,
+            "cleanup": self.cleanup,
         }
 
 
@@ -77,7 +80,7 @@ class JobManager:
 
     def __init__(
         self,
-        executor: Callable[[str], Awaitable[Dict[str, int]]],
+        executor: Callable[[str], Awaitable[Dict[str, Any]]],
         *,
         max_concurrency: int = 2,
         max_jobs: int = DEFAULT_MAX_JOBS,
@@ -139,8 +142,12 @@ class JobManager:
                 job.success = int(counts.get("success", 0))
                 job.failed = int(counts.get("failed", 0))
                 job.skipped = int(counts.get("skipped", 0))
-                # 只要跑完就是 success；具体成功/失败个数通过字段区分
-                job.status = JobStatus.SUCCESS if job.failed == 0 else JobStatus.FAILED
+                job.cleanup = counts.get("cleanup") or job.cleanup
+                job.error = counts.get("incomplete_reason")
+                job.status = (JobStatus.FAILED if job.failed else (
+                    JobStatus.PARTIAL if job.cleanup.get("incomplete") or job.error
+                    else JobStatus.SUCCESS
+                ))
             except Exception as exc:
                 job.status = JobStatus.FAILED
                 job.error = f"{type(exc).__name__}: {exc}"

@@ -13,6 +13,7 @@ from core.metadata import build_author_home_url
 from core.user_mode_registry import UserModeRegistry
 from core.user_modes.base_strategy import PageRequestFailedError
 from core.user_modes.mix_routing import collection_directories
+from core.watermark.service import cleanup_download
 from utils.logger import setup_logger
 
 logger = setup_logger("UserDownloader")
@@ -48,6 +49,7 @@ class UserDownloader(BaseDownloader):
         self.mode_registry = UserModeRegistry()
         self._mode_strategy_cache: Dict[str, Any] = {}
 
+    @cleanup_download
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         download_started = time.monotonic()
         sec_uid = parsed_url.get("sec_uid")
@@ -307,6 +309,7 @@ class UserDownloader(BaseDownloader):
         target.success += source.success
         target.failed += source.failed
         target.skipped += source.skipped
+        target.cleanup.extend(source.cleanup)
         if source.incomplete_reason and not target.incomplete_reason:
             target.incomplete_reason = source.incomplete_reason
 

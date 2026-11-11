@@ -148,3 +148,15 @@ cookies:
   odin_tt: YOUR_ODIN_TT
   passport_csrf_token: YOUR_CSRF_TOKEN
   sid_guard: YOUR_SID_GUARD
+
+# 下载完成后在本机处理；原片保留，生成 .clean.mp4 和 .cleanup.json。
+# 首次使用先运行：python -m tools.watermark setup
+watermark:
+  enabled: true
+  markers: true
+  visible: true
+  strategy: aggressive
+  keep_original: true
+  concurrency: 1
+  timeout_seconds: 14400
+  model_dir: ""  # 默认 ~/.cache/douyin-downloader/ocr-v4

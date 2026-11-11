@@ -315,6 +315,9 @@ async def main_async(args):
             total_result.success += r.success
             total_result.failed += r.failed
             total_result.skipped += r.skipped
+            total_result.cleanup.extend(r.cleanup)
+            if r.incomplete_reason and not total_result.incomplete_reason:
+                total_result.incomplete_reason = r.incomplete_reason
 
         display.print_success("\n=== Overall Summary ===")
         display.show_result(total_result)
@@ -378,13 +381,16 @@ async def _dispatch_notifications(config: ConfigLoader, total_result: Any, url_c
         body = f"共处理 {url_count} 个链接，无成功结果"
         level = "failure"
     else:
-        fail_or_partial = total_result.failed > 0 or total_result.success == 0
+        fail_or_partial = (total_result.failed > 0
+                           or (total_result.success == 0 and total_result.skipped == 0)
+                           or total_result.incomplete_reason
+                           or total_result.cleanup_summary["incomplete"])
         level = "failure" if fail_or_partial else "success"
         title = "抖音下载完成" if level == "success" else "抖音下载部分失败"
         body = (
             f"链接 {url_count} / 总作品 {total_result.total} / "
             f"成功 {total_result.success} / 失败 {total_result.failed} / "
-            f"跳过 {total_result.skipped}"
+            f"跳过 {total_result.skipped} / 清理 {total_result.cleanup_summary['counts']}"
         )
 
     try:

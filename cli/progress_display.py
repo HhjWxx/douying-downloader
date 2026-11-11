@@ -12,6 +12,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich.table import Table
+from rich.text import Text
 
 console = Console()
 
@@ -243,11 +244,24 @@ class ProgressDisplay:
         table.add_row("Failed", str(result.failed))
         table.add_row("Skipped", str(result.skipped))
 
+        for status, count in result.cleanup_summary["counts"].items():
+            table.add_row("去水印 / " + status, str(count))
+
         if result.total > 0:
             success_rate = (result.success / result.total) * 100
             table.add_row("Success Rate", f"{success_rate:.1f}%")
 
         self._active_console().print(table)
+        if result.cleanup:
+            details = Table(title="去水印产物（最多展示 20 条）")
+            details.add_column("状态")
+            details.add_column("输出 / 原因 / 报告")
+            for item in result.cleanup[:20]:
+                values = [item.get(key) for key in ("output", "reason", "report")]
+                details.add_row(item.get("status", "failed"), Text("\n".join(
+                    str(value) for value in values if value
+                )))
+            self._active_console().print(details)
 
     def rollback_url_item_reasons(self):
         """当前 URL 要整条重跑（如重新登录后重试）时，丢掉本轮已计的原因。"""

@@ -9,11 +9,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from config.watermark import normalize
 from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.ffmpeg import resolve_ffmpeg_path
 from core.metadata import build_author_home_url, extract_author_sec_uid
 from core.output_naming import plan_output_paths
+from core.watermark.service import cleanup_download
 from utils.logger import setup_logger
 from utils.naming import build_live_context
 
@@ -24,6 +26,7 @@ _PROCESS_REAP_TIMEOUT_SECONDS = 5.0
 
 
 class LiveReplayDownloader(BaseDownloader):
+    @cleanup_download
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
         result.total = 1
@@ -117,6 +120,11 @@ class LiveReplayDownloader(BaseDownloader):
             os.replace(str(video_path), str(final_path))
             output_paths = [final_path]
             remux_status = "video_only"
+
+        if remux_status in ("merged", "video_only"):
+            self._queue_cleanup(output_paths, str((episode.get("owner") or {}).get("nickname", "")))
+        elif normalize(self.config.get("watermark"))["enabled"]:
+            result.cleanup.append({"status": "unsupported", "reason": "回放未合并完成", "output": None})
 
         await self._record_outputs(
             episode, replay, episode_id, room_id, save_dir, output_paths, remux_status

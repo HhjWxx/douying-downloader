@@ -11,6 +11,7 @@ import aiohttp
 
 from auth import CookieManager
 from config import ConfigLoader
+from config.watermark import artifact_paths, eligible, normalize
 from control import QueueManager, RateLimiter, RetryHandler
 from core import item_reasons
 from core.api_client import DouyinAPIClient
@@ -21,6 +22,7 @@ from core.metadata import (
 )
 from core.output_naming import plan_output_paths
 from core.transcript_manager import TranscriptManager
+from core.watermark.service import find_existing, process_batch, summary
 from storage import Database, FileManager, MetadataHandler
 from storage.database import order_cover_mirrors
 from utils.logger import setup_logger
@@ -65,10 +67,15 @@ class DownloadResult:
         self.success = 0
         self.failed = 0
         self.skipped = 0
+        self.cleanup = []
         # 「列表没取全」的人话原因；只在有确凿证据（请求失败 / 受限空页）
         # 时填写。四个计数字段表达不了这件事——分页被限流截断时 failed
         # 恒为 0，任务会被 server/jobs.py 判成 SUCCESS。
         self.incomplete_reason: Optional[str] = None
+
+    @property
+    def cleanup_summary(self):
+        return summary(self.cleanup)
 
     def __str__(self):
         return f"Total: {self.total}, Success: {self.success}, Failed: {self.failed}, Skipped: {self.skipped}"
@@ -101,6 +108,8 @@ class BaseDownloader(ABC):
         # Server job that spawned this downloader (empty for CLI runs);
         # written onto each aweme row for the History job cross-filter.
         self.job_id = job_id
+        self._cleanup_requests = {}
+        self._cleanup_batch = None
         self.metadata_handler = MetadataHandler()
         self.transcript_manager = TranscriptManager(self.config, self.file_manager, self.database)
         self._local_aweme_ids: Optional[set[str]] = None
@@ -130,6 +139,36 @@ class BaseDownloader(ABC):
         self._item_reasons: Dict[str, str] = {}
         # {"failed"|"skipped": {原因: 次数}}，插入顺序即首次出现顺序。
         self._item_reason_counts: Dict[str, Dict[str, int]] = {}
+
+    def _queue_cleanup(self, paths, author=""):
+        settings = normalize(self.config.get("watermark"))
+        if not settings["enabled"]:
+            return []
+        references = []
+        for path in paths:
+            if eligible(path):
+                self._cleanup_requests[Path(path)] = author
+                if self._cleanup_batch is not None:
+                    self._cleanup_batch.submit(Path(path), author)
+                _, report = artifact_paths(path)
+                references.append({"source": str(path), "report": str(report), "status": "pending"})
+        return references
+
+    async def _finish_cleanup(self, result):
+        if not self._cleanup_requests:
+            return
+        self._progress_update_step("自动去水印", "保留原片，检测并生成清理副本")
+        requests = list(self._cleanup_requests.items())
+        self._cleanup_requests.clear()
+        if self._cleanup_batch is not None:
+            outcomes = await self._cleanup_batch.finish()
+        else:
+            outcomes = await process_batch(requests, self.config.get("watermark"))
+        result.cleanup.extend(outcomes)
+        for outcome in outcomes:
+            await self.metadata_handler.append_download_manifest(
+                self.file_manager.base_path, {"record_type": "cleanup", "cleanup": outcome}
+            )
 
     def _progress_update_step(self, step: str, detail: str = "") -> None:
         if not self.progress_reporter:
@@ -333,6 +372,9 @@ class BaseDownloader(ABC):
 
         await self._ensure_local_aweme_index()
         if self._is_locally_downloaded(aweme_id):
+            self._queue_cleanup(await asyncio.to_thread(
+                find_existing, self.file_manager.base_path, str(aweme_id)
+            ))
             logger.info("Aweme %s already exists locally, skipping", aweme_id)
             return self._note_item_reason(aweme_id, item_reasons.SKIP_LOCAL_FILE_EXISTS)
 
@@ -399,6 +441,8 @@ class BaseDownloader(ABC):
         if base_path.exists():
             for path in base_path.rglob("*"):
                 if not path.is_file():
+                    continue
+                if path.stem.endswith(".clean") or any(p.startswith(".wm-") for p in path.parts):
                     continue
                 if path.suffix.lower() not in self._local_media_suffixes:
                     continue
@@ -890,6 +934,7 @@ class BaseDownloader(ABC):
             "desc": desc,
             "media_type": media_type,
             "tags": self._extract_tags(aweme_data),
+            "cleanup": self._queue_cleanup(downloaded_files, author.get("nickname", author_name)),
             "file_names": [path.name for path in downloaded_files],
             "file_paths": [self._to_manifest_path(path) for path in downloaded_files],
         }

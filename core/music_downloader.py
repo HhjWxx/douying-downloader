@@ -10,6 +10,7 @@ from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
 from core.metadata import build_author_home_url, extract_author_sec_uid
 from core.output_naming import plan_output_paths
+from core.watermark.service import cleanup_download
 from utils.logger import setup_logger
 from utils.naming import build_music_context
 
@@ -17,6 +18,7 @@ logger = setup_logger("MusicDownloader")
 
 
 class MusicDownloader(BaseDownloader):
+    @cleanup_download
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
 

@@ -2,12 +2,14 @@ from typing import Any, Dict
 
 from core import item_reasons
 from core.downloader_base import BaseDownloader, DownloadResult
+from core.watermark.service import cleanup_download
 from utils.logger import setup_logger
 
 logger = setup_logger("VideoDownloader")
 
 
 class VideoDownloader(BaseDownloader):
+    @cleanup_download
     async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
         result = DownloadResult()
 
