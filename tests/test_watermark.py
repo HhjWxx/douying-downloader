@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -486,7 +487,9 @@ def test_variable_timing_positive_start_preserves_sample_duration(tmp_path):
 
 
 async def test_flv_remux_and_long_unicode_paths(tmp_path):
-    parent = tmp_path / ("long path " * 8) / ("中文目录" * 8)
+    # Windows 不支持尾随空格目录，也不能假设测试机已启用长路径。
+    repeats = 2 if os.name == "nt" else 8
+    parent = tmp_path / ("long path " * repeats).rstrip() / ("中文目录" * repeats)
     parent.mkdir(parents=True)
     source = make_video(parent / ("中文" * 35 + ".mp4"))
     flv = source.with_suffix(".flv")
