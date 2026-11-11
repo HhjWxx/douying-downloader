@@ -1,0 +1,61 @@
+name: Desktop build and acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 构建平台
+        type: choice
+        default: windows
+        options: [windows, all]
+  push:
+    paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'tools/*desktop*', '.github/workflows/desktop.yml']
+  pull_request:
+    paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'tools/*desktop*', '.github/workflows/desktop.yml']
+jobs:
+  desktop:
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.platform == 'all' && '[{"os":"macos-15","arch":"arm64","binary":"douyin-sidecar"},{"os":"macos-15-intel","arch":"x64","binary":"douyin-sidecar"},{"os":"windows-2022","arch":"x64","binary":"douyin-sidecar.exe"}]' || '[{"os":"windows-2022","arch":"x64","binary":"douyin-sidecar.exe"}]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: python -m pip install -e ".[dev]" -r desktop/requirements-build.txt -c desktop/constraints.txt
+      - run: python -m pytest tests/ -q
+      - run: python -m ruff check .
+      - run: python -m compileall -q core config cli server tools
+      - run: npm ci
+        working-directory: desktop
+      - run: npx install-electron --no
+        working-directory: desktop
+      - run: npm test
+        working-directory: desktop
+      - run: python -c "import os,sys; open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write('DOUYIN_PYTHON=' + sys.executable + '\n')"
+      - run: npm run test:e2e
+        working-directory: desktop
+      - run: python -m tools.build_desktop
+      - run: python -m tools.check_desktop dist/douyin-sidecar/${{ matrix.binary }} --model-dir dist/ocr-v4
+      - run: npm run package -- --${{ matrix.arch }}
+        working-directory: desktop
+      - run: python -c "from pathlib import Path; import subprocess,sys; p=next(Path('desktop/release').rglob('${{ matrix.binary }}')); subprocess.run([sys.executable,'-m','tools.check_desktop',str(p),'--model-dir',str(p.parent.parent/'ocr-v4')],check=True)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.exe
+            desktop/release/SHA256SUMS.txt
+            desktop/test-results/**

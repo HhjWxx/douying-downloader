@@ -51,3 +51,11 @@ config/cookies.json
 .vscode/
 .omc/
 .gstack/
+
+# Desktop dependencies and test output
+node_modules/
+desktop/out/
+desktop/release/
+desktop/test-results/
+desktop/playwright-report/
+desktop/assets/icon.png

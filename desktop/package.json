@@ -1,0 +1,81 @@
+{
+  "name": "douyin-downloader-desktop",
+  "productName": "Douyin Downloader",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "main": "out/main/main.js",
+  "description": "抖音桌面下载工作台",
+  "author": "Douyin Downloader contributors",
+  "license": "MIT",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "build": "tsc -p tsconfig.main.json && tsc --noEmit -p tsconfig.json && vite build",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "package": "npm run build && electron-builder --publish never",
+    "postpackage": "node scripts/checksums.mjs"
+  },
+  "build": {
+    "appId": "local.douyin.downloader",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**",
+      "electron/preload.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/douyin-sidecar",
+        "to": "sidecar"
+      },
+      {
+        "from": "../dist/ocr-v4",
+        "to": "ocr-v4"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE-backend"
+      },
+      {
+        "from": "../dist/THIRD_PARTY_NOTICES.txt",
+        "to": "THIRD_PARTY_NOTICES.txt"
+      }
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities",
+      "identity": "-",
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "artifactName": "Douyin-Downloader-${version}-${os}-${arch}.${ext}"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.7"
+  }
+}

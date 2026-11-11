@@ -75,7 +75,7 @@ class _ServerDeps:
         self.queue_manager = QueueManager(max_workers=int(config.get("thread", 5) or 5))
 
 
-async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:
+async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, Any]:
     """简化版 download_url：只负责执行并返回成功/失败计数。
 
     有意不复用 cli.main.download_url —— 后者绑定了 progress_display 的 rich 状态。
@@ -123,13 +123,19 @@ async def _execute_download(url: str, deps: "_ServerDeps") -> Dict[str, int]:
             "success": result.success,
             "failed": result.failed,
             "skipped": result.skipped,
+            "cleanup": result.cleanup_summary,
+            "incomplete_reason": result.incomplete_reason,
         }
 
 
-def build_app(config: ConfigLoader) -> FastAPI:
+def build_app(config: ConfigLoader, *, desktop=None, token=None) -> FastAPI:
+    if desktop is not None:
+        from server.desktop_api import build_desktop_app
+
+        return build_desktop_app(desktop, token)
     deps = _ServerDeps(config)
 
-    async def executor(url: str) -> Dict[str, int]:
+    async def executor(url: str) -> Dict[str, Any]:
         return await _execute_download(url, deps)
 
     server_cfg = config.get("server") or {}
