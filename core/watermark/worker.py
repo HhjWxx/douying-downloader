@@ -254,7 +254,7 @@ def run(request):
         return report
 
 
-def watch_parent(stopped):
+def watch_parent(stopped, ready):
     if os.name == "nt":
         import ctypes
         import msvcrt
@@ -267,9 +267,11 @@ def watch_parent(stopped):
                          wintypes.LPDWORD, wintypes.LPDWORD, wintypes.LPDWORD]
         peek.restype = wintypes.BOOL
         handle = msvcrt.get_osfhandle(0)
-        while not stopped.wait(0.2):
+        while not stopped.is_set():
             if not peek(handle, None, 0, None, None, None):
                 os._exit(75)
+            ready.set()
+            stopped.wait(0.2)
     else:
         import select
 
@@ -277,17 +279,22 @@ def watch_parent(stopped):
             readable, _, _ = select.select([0], [], [], 0.2)
             if readable and not os.read(0, 1):
                 os._exit(75)
+            ready.set()
 
 
 def main():
     import threading
 
     stopped = threading.Event()
+    ready = threading.Event()
     watcher = None
     if os.environ.get("DOUYIN_WORKER_PARENT_PIPE") == "1":
-        watcher = threading.Thread(target=watch_parent, args=(stopped,), daemon=True)
+        watcher = threading.Thread(target=watch_parent, args=(stopped, ready), daemon=True)
         watcher.start()
     try:
+        # 先验证父管道仍存活，避免缓存命中时 Worker 先于监控初始化结束。
+        if watcher and not ready.wait(timeout=5):
+            raise RuntimeError("无法启动父进程管道监控")
         request = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
         result = run(request)
         atomic_json(Path(request["response"]), result)

@@ -69,7 +69,8 @@ def check(executable, model_dir):
             env={**os.environ, "DOUYIN_WORKER_PARENT_PIPE": "1"},
         )
         orphan.stdin.close()
-        assert orphan.wait(timeout=15) == 75, "父进程退出后 Worker 未停止"
+        orphan_code = orphan.wait(timeout=15)
+        assert orphan_code == 75, "父进程退出后 Worker 未按预期停止：%s" % orphan_code
         token = secrets.token_hex(32)
         process = subprocess.Popen(
             [str(executable), "--data-dir", str(root / "app"), "--download-dir", str(root / "downloads"),
