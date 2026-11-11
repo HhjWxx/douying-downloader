@@ -81,8 +81,10 @@ jobs:
           text = log.read_text(encoding='utf-8')
           print(text)
           if result.returncode:
-              detail = '\n'.join(text.splitlines()[-100:])
-              print('::error title=Backend tests::'+detail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+              detail = text[-12000:]
+              for offset in range(0, len(detail), 3000):
+                  chunk = detail[offset:offset+3000]
+                  print('::error title=Backend tests::'+chunk.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
           sys.exit(result.returncode)
       - run: python -m ruff check .
       - run: python -m compileall -q core config cli server tools
