@@ -8,6 +8,14 @@ from core.watermark.markers import clean_extradata, clean_metadata, clean_packet
 from core.watermark.progress import MediaProgress
 
 
+def raw_timing_options(container):
+    # edit list 是 MOV/MP4 解封装选项；传给 FLV 会触发部分 Windows
+    # FFmpeg 构建的原生崩溃。按实际容器选择，不依据文件扩展名猜测。
+    if "mov" in container.format.name.split(","):
+        return {"ignore_editlist": "1"}
+    return {}
+
+
 def probe(path):
     with av.open(str(path)) as container:
         videos = list(container.streams.video)
@@ -70,7 +78,7 @@ def restore_sample_duration(packet, raw_video):
 
 def remux(source, target, markers=True):
     with av.open(str(source)) as src, av.open(
-        str(source), options={"ignore_editlist": "1"}
+        str(source), options=raw_timing_options(src)
     ) as raw, av.open(
         str(target),
         "w",
@@ -144,7 +152,7 @@ def detect(source, detector):
 
 def encode(source, target, tracker):
     with av.open(str(source)) as src, av.open(
-        str(source), options={"ignore_editlist": "1"}
+        str(source), options=raw_timing_options(src)
     ) as raw, av.open(
         str(target),
         "w",
@@ -219,6 +227,7 @@ def fingerprint(path):
     times, audio = [], {}
     last_duration = 0.0
     with av.open(str(path)) as container:
+        raw_options = raw_timing_options(container)
         stream = container.streams.video[0]
         progress = MediaProgress(stream)
         stream.codec_context.thread_count = 2
@@ -271,7 +280,7 @@ def fingerprint(path):
         if any(b <= a for a, b in zip(times, times[1:])):
             raise ValueError("视频时间戳不递增")
     coded_tail_duration = 0.0
-    with av.open(str(path), options={"ignore_editlist": "1"}) as raw:
+    with av.open(str(path), options=raw_options) as raw:
         latest = None
         for packet in raw.demux(video=0):
             if packet.size and packet.pts is not None:
