@@ -43,7 +43,10 @@ jobs:
           from pathlib import Path
           log = Path('backend-tests.log')
           with log.open('w', encoding='utf-8') as output:
-              result = subprocess.run([sys.executable,'-m','pytest','tests/','-x','-vv','-o','faulthandler_timeout=60'],stdout=output,stderr=subprocess.STDOUT)
+              for targets in (['tests/test_watermark.py::test_flv_remux_and_long_unicode_paths'], ['tests/']):
+                  result = subprocess.run([sys.executable,'-m','pytest',*targets,'-x','-vv','-o','faulthandler_timeout=60'],stdout=output,stderr=subprocess.STDOUT)
+                  if result.returncode:
+                      break
           text = log.read_text(encoding='utf-8')
           print(text)
           if result.returncode:

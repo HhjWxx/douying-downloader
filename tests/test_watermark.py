@@ -486,7 +486,16 @@ def test_variable_timing_positive_start_preserves_sample_duration(tmp_path):
     assert media.verify(media.fingerprint(source), cleaned, True)["coded_tail_duration_preserved"]
 
 
-async def test_flv_remux_and_long_unicode_paths(tmp_path):
+async def test_flv_remux_and_long_unicode_paths(tmp_path, monkeypatch):
+    spawn = asyncio.create_subprocess_exec
+
+    async def trace_worker(*args, **kwargs):
+        # 原生媒体库异常时将堆栈保留在测试日志，避免只有 Windows 退出码。
+        kwargs["env"]["PYTHONFAULTHANDLER"] = "1"
+        kwargs["stderr"] = None
+        return await spawn(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", trace_worker)
     # Windows 不支持尾随空格目录，也不能假设测试机已启用长路径。
     repeats = 2 if os.name == "nt" else 8
     parent = tmp_path / ("long path " * repeats).rstrip() / ("中文目录" * repeats)
