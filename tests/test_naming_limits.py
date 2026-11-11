@@ -69,7 +69,11 @@ def test_planned_long_names_and_sidecars_can_be_written(tmp_path, title):
         path = directory / (stem + suffix)
         path.write_bytes(b"media")
         assert path.read_bytes() == b"media"
-    if title == "a" * 150:
+    if os.name == "nt":
+        # Windows 同时限制完整路径，目录与文件名会共享标题预算。
+        assert all(len(str(directory / (stem + suffix)).encode("utf-16-le")) // 2 <= 259
+                   for suffix in suffixes)
+    elif title == "a" * 150:
         assert title in stem
 
 
@@ -226,7 +230,9 @@ async def test_download_writes_long_titles_with_complete_id(tmp_path, monkeypatc
         assert video.stem.endswith("_7600000000000000000")
         assert video.parent.name.endswith("_7600000000000000000")
         assert video.with_name(video.stem + "_data.json").exists()
-        if title.startswith("a"):
+        if os.name == "nt":
+            assert len(str(video.with_name(video.stem + "_data.json")).encode("utf-16-le")) // 2 <= 259
+        elif title.startswith("a"):
             assert title in video.name
         else:
             assert len(video.stem.encode("utf-8")) > 200

@@ -11,6 +11,9 @@ on:
     paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'tools/*desktop*', '.github/workflows/desktop.yml']
   pull_request:
     paths: ['desktop/**', 'server/**', 'core/**', 'storage/**', 'tools/*desktop*', '.github/workflows/desktop.yml']
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   desktop:
     timeout-minutes: 60
@@ -38,9 +41,10 @@ jobs:
         shell: pwsh
         run: |
           @'
-          import json, os, subprocess, sys, tempfile
+          import asyncio, json, os, subprocess, sys, tempfile
           from pathlib import Path
           from tests.test_watermark import make_video
+          from core.watermark.service import process_file
           with tempfile.TemporaryDirectory() as folder:
               root = Path(folder)
               source = make_video(root / 'source.mp4')
@@ -62,6 +66,9 @@ jobs:
                       finally:
                           proc.stdin.close()
                   print((work / 'worker.log').read_text(encoding='utf-8'))
+              source = make_video(root / 'async.mp4')
+              result = asyncio.run(process_file(source,{'visible':False,'timeout_seconds':30},progress=lambda path,event:print(event,flush=True)))
+              print('async_worker',result,flush=True)
           '@ | python -
       - run: python -m pytest tests/ -x -vv -o faulthandler_timeout=60
       - run: python -m ruff check .

@@ -30,6 +30,14 @@ from core.watermark.service import process_file
 from core.watermark.worker import run
 
 
+@pytest.fixture(autouse=True)
+def short_worker_timeout(monkeypatch):
+    from config.watermark import DEFAULTS
+
+    # 合成媒体只有两秒，测试不能沿用真实长视频的四小时超时。
+    monkeypatch.setitem(DEFAULTS, "timeout_seconds", 30)
+
+
 def make_video(path, codec="libx264", audio=False, fragmented=False, hdr=False):
     command = [
         resolve_ffmpeg_path(),
@@ -64,7 +72,7 @@ async def test_worker_streams_real_progress_and_preserves_verification(tmp_path)
     source = make_video(tmp_path / "progress.mp4", audio=True)
     events = []
     result = await process_file(source, {"visible": False}, progress=lambda path, event: events.append(event))
-    assert result["status"] == "success"
+    assert result["status"] == "success", (result, events[-3:])
     assert any(e.get("unit") == "帧" and e.get("done") == 20 for e in events)
     assert any(e.get("stage") == "校验音频与视频完整性" for e in events)
     report = json.loads(Path(result["report"]).read_text())

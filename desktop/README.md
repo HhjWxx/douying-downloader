@@ -54,7 +54,7 @@ Windows 自检使用 `dist/douyin-sidecar/douyin-sidecar.exe`；Windows 和 Inte
 
 PyInstaller 包含 Python、媒体库、OCR 引擎、CA 证书，OCR 模型及许可声明随应用分发。macOS 使用 ad-hoc 签名，未做 Developer ID 公证；Windows 未配置商业签名。当前为手动升级，不依赖更新服务。
 
-CI 对 macOS arm64/x64、Windows x64 分别运行后端测试、界面测试、冻结服务和离线媒体自检并生成安装包。自动化测试不访问真实抖音，真实账号、分页和媒体下载需单独验收；构建成功不代表真实平台接口已经通过验收。
+推送代码后 CI 默认构建 Windows x64；手动运行 Desktop build and acceptance 并选择 `platform: all` 可同时构建 macOS arm64/x64。每个平台运行后端测试、界面测试、冻结服务和离线媒体自检后生成安装包。Media cleanup 多版本矩阵按需手动运行，避免与桌面构建重复占用 runner。自动化测试不访问真实抖音，真实账号、分页和媒体下载需单独验收；构建成功不代表真实平台接口已经通过验收。
 
 ## 结构与接口
 
