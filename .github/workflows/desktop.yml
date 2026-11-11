@@ -68,9 +68,22 @@ jobs:
                   print((work / 'worker.log').read_text(encoding='utf-8'))
               source = make_video(root / 'async.mp4')
               result = asyncio.run(process_file(source,{'visible':False,'timeout_seconds':30},progress=lambda path,event:print(event,flush=True)))
-              print('async_worker',result,flush=True)
+              print('::notice::async_worker '+str(result),flush=True)
           '@ | python -
-      - run: python -m pytest tests/ -x -vv -o faulthandler_timeout=60
+      - name: Backend tests
+        shell: python
+        run: |
+          import subprocess, sys
+          from pathlib import Path
+          log = Path('backend-tests.log')
+          with log.open('w', encoding='utf-8') as output:
+              result = subprocess.run([sys.executable,'-m','pytest','tests/','-x','-vv','-o','faulthandler_timeout=60'],stdout=output,stderr=subprocess.STDOUT)
+          text = log.read_text(encoding='utf-8')
+          print(text)
+          if result.returncode:
+              detail = '\n'.join(text.splitlines()[-100:])
+              print('::error title=Backend tests::'+detail.replace('%','%25').replace('\r','%0D').replace('\n','%0A'))
+          sys.exit(result.returncode)
       - run: python -m ruff check .
       - run: python -m compileall -q core config cli server tools
       - run: npm ci
